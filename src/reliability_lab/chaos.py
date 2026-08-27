@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import random
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from reliability_lab.cache import ResponseCache, SharedRedisCache
@@ -24,7 +26,11 @@ def load_queries(path: str | Path = "data/sample_queries.jsonl") -> list[str]:
 def build_gateway(config: LabConfig, provider_overrides: dict[str, float] | None = None) -> ReliabilityGateway:
     providers = []
     for p in config.providers:
-        fail_rate = provider_overrides.get(p.name, p.fail_rate) if provider_overrides else p.fail_rate
+        fail_rate = (
+            provider_overrides.get(p.name, p.fail_rate)
+            if provider_overrides is not None
+            else p.fail_rate
+        )
         providers.append(FakeLLMProvider(p.name, fail_rate, p.base_latency_ms, p.cost_per_1k_tokens))
     breakers = {
         p.name: CircuitBreaker(
@@ -62,7 +68,21 @@ def calculate_recovery_time_ms(gateway: ReliabilityGateway) -> float | None:
     Each transition_log entry is a dict with keys: "from", "to", "reason", "ts"
     where "ts" is time.time() (epoch seconds).
     """
-    raise NotImplementedError("TODO: implement calculate_recovery_time_ms()")
+    recovery_times: list[float] = []
+    for breaker in gateway.breakers.values():
+        opened_at: float | None = None
+        for transition in breaker.transitions():
+            destination = transition["to"]
+            timestamp = float(transition["ts"])
+            if destination == "open":
+                opened_at = timestamp
+            elif destination == "closed" and opened_at is not None:
+                recovery_times.append((timestamp - opened_at) * 1000)
+                opened_at = None
+
+    if not recovery_times:
+        return None
+    return sum(recovery_times) / len(recovery_times)
 
 
 def run_scenario(config: LabConfig, queries: list[str], scenario: ScenarioConfig) -> RunMetrics:
@@ -86,7 +106,77 @@ def run_scenario(config: LabConfig, queries: list[str], scenario: ScenarioConfig
     5. Set recovery_time_ms via calculate_recovery_time_ms(gateway)
     6. Return metrics
     """
-    raise NotImplementedError("TODO: implement run_scenario()")
+    if not queries:
+        raise ValueError("At least one query is required to run a chaos scenario")
+
+    scenario_config = config.model_copy(deep=True)
+    if scenario.cache_enabled is not None:
+        scenario_config.cache.enabled = scenario.cache_enabled
+    gateway = build_gateway(scenario_config, scenario.provider_overrides or None)
+    metrics = RunMetrics(concurrency=scenario_config.load_test.concurrency)
+    prompts = [random.choice(queries) for _ in range(scenario_config.load_test.requests)]
+    started_at = time.perf_counter()
+
+    with ThreadPoolExecutor(
+        max_workers=scenario_config.load_test.concurrency,
+        thread_name_prefix=f"chaos-{scenario.name}",
+    ) as executor:
+        split_at = scenario.recovery_after_requests
+        if split_at is None or split_at >= len(prompts):
+            futures = [executor.submit(gateway.complete, prompt) for prompt in prompts]
+            results = [future.result() for future in as_completed(futures)]
+        else:
+            first_phase = [
+                executor.submit(gateway.complete, prompt) for prompt in prompts[:split_at]
+            ]
+            results = [future.result() for future in as_completed(first_phase)]
+            pause = scenario.recovery_pause_seconds
+            if pause is None:
+                pause = scenario_config.circuit_breaker.reset_timeout_seconds + 0.05
+            time.sleep(pause)
+            if scenario.recovery_provider is not None:
+                for provider in gateway.providers:
+                    if provider.name == scenario.recovery_provider:
+                        provider.fail_rate = 0.0
+            second_phase = [
+                executor.submit(gateway.complete, prompt) for prompt in prompts[split_at:]
+            ]
+            results.extend(future.result() for future in as_completed(second_phase))
+
+    metrics.wall_clock_duration_ms = (time.perf_counter() - started_at) * 1000
+    for result in results:
+        metrics.total_requests += 1
+        metrics.estimated_cost += result.estimated_cost
+        metrics.estimated_cost_saved += result.estimated_cost_saved
+        route_name = result.route.split(":", maxsplit=1)[0]
+        metrics.route_counts[route_name] = metrics.route_counts.get(route_name, 0) + 1
+        provider_name = result.provider or "none"
+        metrics.provider_counts[provider_name] = metrics.provider_counts.get(provider_name, 0) + 1
+
+        if result.cache_hit:
+            metrics.cache_hits += 1
+
+        if result.route == "fallback":
+            metrics.fallback_successes += 1
+            metrics.successful_requests += 1
+        elif result.route == "static_fallback":
+            metrics.static_fallbacks += 1
+            metrics.failed_requests += 1
+        else:
+            metrics.successful_requests += 1
+
+        metrics.latencies_ms.append(result.latency_ms)
+
+    metrics.circuit_open_count = sum(
+        transition["to"] == "open"
+        for breaker in gateway.breakers.values()
+        for transition in breaker.transitions()
+    )
+    for breaker in gateway.breakers.values():
+        state = breaker.state.value
+        metrics.circuit_state_counts[state] = metrics.circuit_state_counts.get(state, 0) + 1
+    metrics.recovery_time_ms = calculate_recovery_time_ms(gateway)
+    return metrics
 
 
 def run_simulation(config: LabConfig, queries: list[str]) -> RunMetrics:
@@ -101,14 +191,38 @@ def run_simulation(config: LabConfig, queries: list[str]) -> RunMetrics:
         metrics.scenarios = {"default": "pass" if metrics.successful_requests > 0 else "fail"}
         return metrics
 
-    combined = RunMetrics()
+    combined = RunMetrics(concurrency=config.load_test.concurrency)
+    recovery_times: list[float] = []
     for scenario in config.scenarios:
         result = run_scenario(config, queries, scenario)
 
-        # TODO(student): Define pass/fail criteria per scenario.
-        # Example: primary_timeout_100 passes if fallback_success_rate > 0.9
-        passed = result.successful_requests > 0
+        availability = result.availability
+        if scenario.name == "primary_timeout_100":
+            passed = result.fallback_successes > 0 and availability >= 0.95
+        elif scenario.name == "primary_flaky_50":
+            passed = result.circuit_open_count > 0 and availability >= 0.90
+        elif scenario.name == "all_healthy":
+            passed = result.circuit_open_count == 0 and result.failed_requests == 0
+        elif scenario.name == "backup_outage":
+            passed = (
+                result.circuit_open_count == 0
+                and result.fallback_successes == 0
+                and result.failed_requests == 0
+            )
+        elif scenario.name == "primary_recovery":
+            passed = (
+                result.recovery_time_ms is not None
+                and result.recovery_time_ms < 5000
+                and availability >= 0.95
+            )
+        else:
+            passed = result.successful_requests > 0
         combined.scenarios[scenario.name] = "pass" if passed else "fail"
+        scenario_report = result.to_report_dict()
+        scenario_report.pop("scenarios", None)
+        scenario_report.pop("scenario_details", None)
+        scenario_report["status"] = "pass" if passed else "fail"
+        combined.scenario_details[scenario.name] = scenario_report
 
         combined.total_requests += result.total_requests
         combined.successful_requests += result.successful_requests
@@ -119,11 +233,20 @@ def run_simulation(config: LabConfig, queries: list[str]) -> RunMetrics:
         combined.circuit_open_count += result.circuit_open_count
         combined.estimated_cost += result.estimated_cost
         combined.estimated_cost_saved += result.estimated_cost_saved
+        combined.wall_clock_duration_ms += result.wall_clock_duration_ms
         combined.latencies_ms.extend(result.latencies_ms)
+        for route, count in result.route_counts.items():
+            combined.route_counts[route] = combined.route_counts.get(route, 0) + count
+        for provider, count in result.provider_counts.items():
+            combined.provider_counts[provider] = combined.provider_counts.get(provider, 0) + count
+        for state, count in result.circuit_state_counts.items():
+            combined.circuit_state_counts[state] = (
+                combined.circuit_state_counts.get(state, 0) + count
+            )
         if result.recovery_time_ms is not None:
-            if combined.recovery_time_ms is None:
-                combined.recovery_time_ms = result.recovery_time_ms
-            else:
-                combined.recovery_time_ms = (combined.recovery_time_ms + result.recovery_time_ms) / 2
+            recovery_times.append(result.recovery_time_ms)
+
+    if recovery_times:
+        combined.recovery_time_ms = sum(recovery_times) / len(recovery_times)
 
     return combined

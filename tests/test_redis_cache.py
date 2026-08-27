@@ -14,12 +14,13 @@ from reliability_lab.cache import SharedRedisCache
 def _redis_available() -> bool:
     try:
         import redis as redis_lib
+        from redis.exceptions import RedisError
 
         r = redis_lib.Redis.from_url("redis://localhost:6379/0")
         r.ping()
         r.close()
         return True
-    except Exception:
+    except RedisError:
         return False
 
 
@@ -53,6 +54,18 @@ def test_set_and_exact_get(cache: SharedRedisCache) -> None:
     cached, score = cache.get("hello world")
     assert cached == "response text"
     assert score == 1.0
+
+
+def test_metadata_round_trip(cache: SharedRedisCache) -> None:
+    cache.set(
+        "metadata query",
+        "metadata response",
+        {"provider": "primary", "estimated_cost": "0.0042"},
+    )
+    cached, score, metadata = cache.get_with_metadata("metadata query")
+    assert cached == "metadata response"
+    assert score == 1.0
+    assert metadata == {"provider": "primary", "estimated_cost": "0.0042"}
 
 
 def test_ttl_expiry() -> None:

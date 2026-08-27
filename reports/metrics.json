@@ -1,0 +1,189 @@
+{
+  "total_requests": 500,
+  "availability": 1.0,
+  "error_rate": 0.0,
+  "latency_p50_ms": 193.85,
+  "latency_p95_ms": 327.8,
+  "latency_p99_ms": 530.92,
+  "fallback_success_rate": 1.0,
+  "cache_hit_rate": 0.44,
+  "circuit_open_count": 3,
+  "recovery_time_ms": 3203.296661376953,
+  "estimated_cost": 0.135396,
+  "estimated_cost_saved": 0.114098,
+  "concurrency": 8,
+  "wall_clock_duration_ms": 12150.87,
+  "throughput_rps": 41.15,
+  "route_counts": {
+    "fallback": 115,
+    "cache_hit": 220,
+    "primary": 165
+  },
+  "provider_counts": {
+    "backup": 115,
+    "none": 220,
+    "primary": 165
+  },
+  "circuit_state_counts": {
+    "open": 2,
+    "closed": 8
+  },
+  "scenarios": {
+    "primary_timeout_100": "pass",
+    "primary_flaky_50": "pass",
+    "all_healthy": "pass",
+    "backup_outage": "pass",
+    "primary_recovery": "pass"
+  },
+  "scenario_details": {
+    "primary_timeout_100": {
+      "total_requests": 100,
+      "availability": 1.0,
+      "error_rate": 0.0,
+      "latency_p50_ms": 0.48,
+      "latency_p95_ms": 482.17,
+      "latency_p99_ms": 525.71,
+      "fallback_success_rate": 1.0,
+      "cache_hit_rate": 0.51,
+      "circuit_open_count": 1,
+      "recovery_time_ms": null,
+      "estimated_cost": 0.017952,
+      "estimated_cost_saved": 0.019728,
+      "concurrency": 8,
+      "wall_clock_duration_ms": 2160.89,
+      "throughput_rps": 46.28,
+      "route_counts": {
+        "fallback": 49,
+        "cache_hit": 51
+      },
+      "provider_counts": {
+        "backup": 49,
+        "none": 51
+      },
+      "circuit_state_counts": {
+        "open": 1,
+        "closed": 1
+      },
+      "status": "pass"
+    },
+    "primary_flaky_50": {
+      "total_requests": 100,
+      "availability": 1.0,
+      "error_rate": 0.0,
+      "latency_p50_ms": 0.55,
+      "latency_p95_ms": 470.13,
+      "latency_p99_ms": 532.91,
+      "fallback_success_rate": 1.0,
+      "cache_hit_rate": 0.52,
+      "circuit_open_count": 1,
+      "recovery_time_ms": null,
+      "estimated_cost": 0.019194,
+      "estimated_cost_saved": 0.02089,
+      "concurrency": 8,
+      "wall_clock_duration_ms": 2123.62,
+      "throughput_rps": 47.09,
+      "route_counts": {
+        "primary": 9,
+        "cache_hit": 52,
+        "fallback": 39
+      },
+      "provider_counts": {
+        "primary": 9,
+        "none": 52,
+        "backup": 39
+      },
+      "circuit_state_counts": {
+        "open": 1,
+        "closed": 1
+      },
+      "status": "pass"
+    },
+    "all_healthy": {
+      "total_requests": 100,
+      "availability": 1.0,
+      "error_rate": 0.0,
+      "latency_p50_ms": 0.35,
+      "latency_p95_ms": 236.48,
+      "latency_p99_ms": 240.56,
+      "fallback_success_rate": 0.0,
+      "cache_hit_rate": 0.61,
+      "circuit_open_count": 0,
+      "recovery_time_ms": null,
+      "estimated_cost": 0.02195,
+      "estimated_cost_saved": 0.03917,
+      "concurrency": 8,
+      "wall_clock_duration_ms": 1138.96,
+      "throughput_rps": 87.8,
+      "route_counts": {
+        "primary": 39,
+        "cache_hit": 61
+      },
+      "provider_counts": {
+        "primary": 39,
+        "none": 61
+      },
+      "circuit_state_counts": {
+        "closed": 2
+      },
+      "status": "pass"
+    },
+    "backup_outage": {
+      "total_requests": 100,
+      "availability": 1.0,
+      "error_rate": 0.0,
+      "latency_p50_ms": 0.63,
+      "latency_p95_ms": 228.83,
+      "latency_p99_ms": 239.0,
+      "fallback_success_rate": 0.0,
+      "cache_hit_rate": 0.56,
+      "circuit_open_count": 0,
+      "recovery_time_ms": null,
+      "estimated_cost": 0.02344,
+      "estimated_cost_saved": 0.03431,
+      "concurrency": 8,
+      "wall_clock_duration_ms": 1272.72,
+      "throughput_rps": 78.57,
+      "route_counts": {
+        "primary": 44,
+        "cache_hit": 56
+      },
+      "provider_counts": {
+        "primary": 44,
+        "none": 56
+      },
+      "circuit_state_counts": {
+        "closed": 2
+      },
+      "status": "pass"
+    },
+    "primary_recovery": {
+      "total_requests": 100,
+      "availability": 1.0,
+      "error_rate": 0.0,
+      "latency_p50_ms": 221.89,
+      "latency_p95_ms": 508.35,
+      "latency_p99_ms": 534.01,
+      "fallback_success_rate": 1.0,
+      "cache_hit_rate": 0.0,
+      "circuit_open_count": 1,
+      "recovery_time_ms": 3203.296661376953,
+      "estimated_cost": 0.05286,
+      "estimated_cost_saved": 0.0,
+      "concurrency": 8,
+      "wall_clock_duration_ms": 5454.68,
+      "throughput_rps": 18.33,
+      "route_counts": {
+        "fallback": 27,
+        "primary": 73
+      },
+      "provider_counts": {
+        "backup": 27,
+        "primary": 73
+      },
+      "circuit_state_counts": {
+        "closed": 2
+      },
+      "status": "pass"
+    }
+  }
+}

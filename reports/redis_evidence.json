@@ -1,0 +1,28 @@
+{
+  "captured_at_utc": "2026-08-27T16:08:51.503207+00:00",
+  "instance_1_ping": true,
+  "instance_2_ping": true,
+  "query": "shared reliability query",
+  "expected_response": "shared response",
+  "instance_2_response": "shared response",
+  "similarity_score": 1.0,
+  "metadata": {
+    "provider": "primary",
+    "estimated_cost": "0.0042"
+  },
+  "shared_state_pass": true,
+  "privacy_guard_pass": true,
+  "false_hit_guard_pass": true,
+  "false_hit_score": 0.8823529411764706,
+  "redis_key": "rl:cache:evidence:d7761e5df3a2",
+  "redis_ttl_seconds": 300,
+  "redis_hash": {
+    "query": "shared reliability query",
+    "response": "shared response",
+    "metadata": "{\"provider\": \"primary\", \"estimated_cost\": \"0.0042\"}"
+  },
+  "matching_keys": [
+    "rl:cache:evidence:3169695a66ac",
+    "rl:cache:evidence:d7761e5df3a2"
+  ]
+}

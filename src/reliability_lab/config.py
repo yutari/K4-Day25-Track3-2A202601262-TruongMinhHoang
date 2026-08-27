@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import yaml
+import yaml  # type: ignore[import-untyped]
 from pydantic import BaseModel, Field
 
 
@@ -30,12 +30,17 @@ class CacheConfig(BaseModel):
 
 class LoadTestConfig(BaseModel):
     requests: int = Field(gt=0)
+    concurrency: int = Field(default=1, gt=0)
 
 
 class ScenarioConfig(BaseModel):
     name: str
     description: str = ""
     provider_overrides: dict[str, float] = Field(default_factory=dict)
+    cache_enabled: bool | None = None
+    recovery_provider: str | None = None
+    recovery_after_requests: int | None = Field(default=None, gt=0)
+    recovery_pause_seconds: float | None = Field(default=None, gt=0)
 
 
 class LabConfig(BaseModel):

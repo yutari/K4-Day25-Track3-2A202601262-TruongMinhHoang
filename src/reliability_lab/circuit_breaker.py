@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Callable, TypeVar
+from threading import RLock
+from typing import TypeVar
 
 T = TypeVar("T")
 
@@ -37,6 +39,8 @@ class CircuitBreaker:
     success_count: int = 0
     opened_at: float | None = None
     transition_log: list[dict[str, str | float]] = field(default_factory=list)
+    _lock: RLock = field(default_factory=RLock, init=False, repr=False, compare=False)
+    _half_open_probe_in_flight: bool = field(default=False, init=False, repr=False)
 
     def allow_request(self) -> bool:
         """Return whether a request should be attempted.
@@ -50,7 +54,25 @@ class CircuitBreaker:
 
         Use time.monotonic() for elapsed time comparison.
         """
-        raise NotImplementedError("TODO: implement allow_request()")
+        with self._lock:
+            if self.state == CircuitState.CLOSED:
+                return True
+
+            if self.state == CircuitState.HALF_OPEN:
+                if self._half_open_probe_in_flight:
+                    return False
+                self._half_open_probe_in_flight = True
+                return True
+
+            if self.opened_at is None:
+                return False
+
+            if time.monotonic() - self.opened_at >= self.reset_timeout_seconds:
+                self._transition(CircuitState.HALF_OPEN, "reset_timeout_elapsed")
+                self.success_count = 0
+                self._half_open_probe_in_flight = True
+                return True
+            return False
 
     def call(self, fn: Callable[..., T], *args: object, **kwargs: object) -> T:
         """Call a function through the circuit breaker.
@@ -61,7 +83,17 @@ class CircuitBreaker:
         3. On success: call record_success() and return the result
         4. On exception: call record_failure() and re-raise
         """
-        raise NotImplementedError("TODO: implement call()")
+        if not self.allow_request():
+            raise CircuitOpenError(f"Circuit '{self.name}' is OPEN")
+
+        try:
+            result = fn(*args, **kwargs)
+        except Exception:
+            self.record_failure()
+            raise
+
+        self.record_success()
+        return result
 
     def record_success(self) -> None:
         """Record a successful call.
@@ -73,7 +105,18 @@ class CircuitBreaker:
            - Transition to CLOSED with reason "probe_success"
            - Reset success_count to 0
         """
-        raise NotImplementedError("TODO: implement record_success()")
+        with self._lock:
+            if self.state == CircuitState.OPEN:
+                return
+
+            self.failure_count = 0
+            self.success_count += 1
+            if self.state == CircuitState.HALF_OPEN:
+                self._half_open_probe_in_flight = False
+                if self.success_count >= self.success_threshold:
+                    self._transition(CircuitState.CLOSED, "probe_success")
+                    self.success_count = 0
+                    self.opened_at = None
 
     def record_failure(self) -> None:
         """Record a failed call.
@@ -90,12 +133,36 @@ class CircuitBreaker:
         IMPORTANT: HALF_OPEN and threshold cases need DIFFERENT reasons
         and must be handled separately (if/elif, not combined with or).
         """
-        raise NotImplementedError("TODO: implement record_failure()")
+        with self._lock:
+            if self.state == CircuitState.OPEN:
+                return
+
+            self.failure_count += 1
+            self.success_count = 0
+
+            if self.state == CircuitState.HALF_OPEN:
+                self._half_open_probe_in_flight = False
+                self._transition(CircuitState.OPEN, "probe_failure")
+                self.opened_at = time.monotonic()
+            elif self.failure_count >= self.failure_threshold:
+                self._transition(CircuitState.OPEN, "failure_threshold_reached")
+                self.opened_at = time.monotonic()
 
     def _transition(self, new_state: CircuitState, reason: str) -> None:
-        if self.state == new_state:
-            return
-        self.transition_log.append(
-            {"from": self.state.value, "to": new_state.value, "reason": reason, "ts": time.time()}
-        )
-        self.state = new_state
+        with self._lock:
+            if self.state == new_state:
+                return
+            self.transition_log.append(
+                {
+                    "from": self.state.value,
+                    "to": new_state.value,
+                    "reason": reason,
+                    "ts": time.time(),
+                }
+            )
+            self.state = new_state
+
+    def transitions(self) -> list[dict[str, str | float]]:
+        """Return a thread-safe snapshot of state-transition events."""
+        with self._lock:
+            return [entry.copy() for entry in self.transition_log]
